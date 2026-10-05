@@ -100,6 +100,10 @@ func main() {
 	addBranchCommands(root, executeAPICall)
 	addUserCommands(root, executeAPICall)
 
+	// Bare `omni` gets the root help from cobra; a person at a terminal is
+	// greeted first.
+	maybePrintBanner(os.Args[1:], os.Stdout, os.Stderr, version)
+
 	// ExecuteC, not Execute: cobra returns a nil error whenever it answers the
 	// help flag, including for `omni models list-branches --help`, where the
 	// "help" is really an unknown-subcommand error. UnknownSubcommand asks the
