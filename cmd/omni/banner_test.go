@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/exploreomni/omni-cli/internal/config"
@@ -16,42 +17,30 @@ func bannerFields(info output.BannerInfo) map[string]string {
 }
 
 func TestBannerInfo(t *testing.T) {
-	acme := &config.Config{
+	cfg := &config.Config{
 		DefaultProfile: "acme",
 		Profiles: map[string]config.Profile{
-			"acme":  {APIEndpoint: "https://acme.omniapp.co", AuthMethod: "api-key", APIKey: "secret-key"},
-			"oauth": {APIEndpoint: "https://oauth.omniapp.co", AuthMethod: "oauth", AccessToken: "secret-token"},
-			"empty": {APIEndpoint: "https://empty.omniapp.co", AuthMethod: "oauth"},
+			"acme":    {APIEndpoint: "https://acme.omniapp.co", AuthMethod: "api-key", APIKey: "secret-key"},
+			"staging": {APIEndpoint: "https://staging.omniapp.co", AuthMethod: "oauth", AccessToken: "secret-token", RefreshToken: "secret-refresh"},
+			"legacy":  {APIEndpoint: "https://legacy.omniapp.co", APIKey: "secret-key"},
+			"blank":   {},
 		},
 	}
-	withDefault := func(name string) *config.Config {
-		cfg := *acme
-		cfg.DefaultProfile = name
-		return &cfg
-	}
-	const agentHint, initHint = "AI agents: start with omni agent-help", "Run omni config init to get started"
+	const nextHint, useHint = "Next: omni models list", "Not the default profile: omni config use"
 
 	for _, tc := range []struct {
-		name                          string
-		cfg                           *config.Config
-		env                           map[string]string
-		profile, instance, auth, hint string
+		name, instance, auth, hint string
 	}{
-		{"no config", nil, nil, "none", "not configured", "none", initHint},
-		{"api key profile", acme, nil, "acme", "acme.omniapp.co", "api-key", agentHint},
-		{"oauth profile", withDefault("oauth"), nil, "oauth", "oauth.omniapp.co", "oauth", agentHint},
-		{"profile not logged in", withDefault("empty"), nil, "empty", "empty.omniapp.co", "none", initHint},
-		{"default profile missing", withDefault("gone"), nil, "gone", "not configured", "none", initHint},
-		{"environment only", nil, map[string]string{"OMNI_BASE_URL": "https://env.omniapp.co", "OMNI_API_TOKEN": "t"},
-			"none", "env.omniapp.co", "OMNI_API_TOKEN", agentHint},
-		{"environment over profile", acme, map[string]string{"OMNI_BASE_URL": "https://env.omniapp.co", "OMNI_API_TOKEN": "t"},
-			"acme", "env.omniapp.co", "OMNI_API_TOKEN", agentHint},
+		{"acme", "acme.omniapp.co", "api-key", nextHint},
+		{"staging", "staging.omniapp.co", "oauth", useHint},
+		{"legacy", "legacy.omniapp.co", "api-key", useHint},
+		{"blank", "not configured", "api-key", useHint},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			info := bannerInfo("1.4.0", tc.cfg, getenv(tc.env), "/work")
+			info := bannerInfo("1.4.0", tc.name, cfg, "/work")
 			fields := bannerFields(info)
-			if fields["Profile"] != tc.profile || fields["Instance"] != tc.instance || fields["Auth"] != tc.auth {
-				t.Errorf("fields = %v, want profile %q, instance %q, auth %q", fields, tc.profile, tc.instance, tc.auth)
+			if fields["Profile"] != tc.name || fields["Instance"] != tc.instance || fields["Auth"] != tc.auth {
+				t.Errorf("fields = %v, want profile %q, instance %q, auth %q", fields, tc.name, tc.instance, tc.auth)
 			}
 			if info.Hint != tc.hint {
 				t.Errorf("hint = %q, want %q", info.Hint, tc.hint)
@@ -59,23 +48,13 @@ func TestBannerInfo(t *testing.T) {
 			if info.Version != "v1.4.0" || info.Dir != "/work" {
 				t.Errorf("version %q and dir %q should pass through", info.Version, info.Dir)
 			}
+			// The banner never shows a secret, whichever way the profile authenticates.
+			for _, f := range info.Fields {
+				if strings.Contains(f.Value, "secret") {
+					t.Errorf("%s shows a secret: %q", f.Label, f.Value)
+				}
+			}
 		})
-	}
-}
-
-// The banner never shows a secret, whichever way the profile authenticates.
-func TestBannerInfo_KeepsSecretsOut(t *testing.T) {
-	cfg := &config.Config{
-		DefaultProfile: "acme",
-		Profiles: map[string]config.Profile{
-			"acme": {APIEndpoint: "https://acme.omniapp.co", AuthMethod: "api-key", APIKey: "secret-key"},
-		},
-	}
-	info := bannerInfo("1.4.0", cfg, getenv(map[string]string{"OMNI_API_TOKEN": "secret-env-token"}), "/work")
-	for _, f := range info.Fields {
-		if f.Value == "secret-key" || f.Value == "secret-env-token" {
-			t.Errorf("%s shows a secret", f.Label)
-		}
 	}
 }
 
@@ -93,34 +72,31 @@ func TestBannerVersion(t *testing.T) {
 	}
 }
 
-// The banner is for a person who typed `omni` and nothing else. Agents and
-// scripts must never find it in front of the output they asked for.
+// The banner is for a person watching `config init` or `config login`
+// finish. Agents and scripts must never find it in a command's output.
 func TestBannerAllowed(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
-		args   []string
 		isTTY  bool
 		format string
 		env    map[string]string
 		want   bool
 	}{
-		{"bare omni at a terminal", nil, true, config.FormatHuman, nil, true},
-		{"piped or redirected", nil, false, config.FormatHuman, nil, false},
-		{"json output format", nil, true, config.FormatJSON, nil, false},
-		{"a subcommand", []string{"agent-help"}, true, config.FormatHuman, nil, false},
-		{"a flag", []string{"--help"}, true, config.FormatHuman, nil, false},
-		{"opted out", nil, true, config.FormatHuman, map[string]string{"OMNI_NO_BANNER": "1"}, false},
-		{"ci", nil, true, config.FormatHuman, map[string]string{"CI": "true"}, false},
-		{"dumb terminal", nil, true, config.FormatHuman, map[string]string{"TERM": "dumb"}, false},
-		{"claude code", nil, true, config.FormatHuman, map[string]string{"CLAUDECODE": "1"}, false},
-		{"cursor agent", nil, true, config.FormatHuman, map[string]string{"CURSOR_AGENT": "1"}, false},
-		{"codex", nil, true, config.FormatHuman, map[string]string{"CODEX_SANDBOX": "seatbelt"}, false},
-		{"gemini cli", nil, true, config.FormatHuman, map[string]string{"GEMINI_CLI": "1"}, false},
-		{"generic agent marker", nil, true, config.FormatHuman, map[string]string{"AI_AGENT": "some-agent"}, false},
-		{"an ordinary terminal", nil, true, config.FormatHuman, map[string]string{"TERM": "xterm-256color"}, true},
+		{"a person at a terminal", true, config.FormatHuman, nil, true},
+		{"an ordinary terminal", true, config.FormatHuman, map[string]string{"TERM": "xterm-256color"}, true},
+		{"piped or redirected", false, config.FormatHuman, nil, false},
+		{"json output format", true, config.FormatJSON, nil, false},
+		{"opted out", true, config.FormatHuman, map[string]string{"OMNI_NO_BANNER": "1"}, false},
+		{"ci", true, config.FormatHuman, map[string]string{"CI": "true"}, false},
+		{"dumb terminal", true, config.FormatHuman, map[string]string{"TERM": "dumb"}, false},
+		{"claude code", true, config.FormatHuman, map[string]string{"CLAUDECODE": "1"}, false},
+		{"cursor agent", true, config.FormatHuman, map[string]string{"CURSOR_AGENT": "1"}, false},
+		{"codex", true, config.FormatHuman, map[string]string{"CODEX_SANDBOX": "seatbelt"}, false},
+		{"gemini cli", true, config.FormatHuman, map[string]string{"GEMINI_CLI": "1"}, false},
+		{"generic agent marker", true, config.FormatHuman, map[string]string{"AI_AGENT": "some-agent"}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := bannerAllowed(tc.args, tc.isTTY, tc.format, getenv(tc.env)); got != tc.want {
+			if got := bannerAllowed(tc.isTTY, tc.format, getenv(tc.env)); got != tc.want {
 				t.Errorf("bannerAllowed = %v, want %v", got, tc.want)
 			}
 		})

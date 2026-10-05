@@ -54,15 +54,6 @@ To check explicitly, including from an agent or script:
 omni update check --format json
 ```
 
-### Welcome banner
-
-Run `omni` on its own in an interactive terminal and the command list is
-preceded by a banner: Blobby, the CLI version, and the default profile's
-instance and auth method. It never appears when a command or flag follows
-`omni`, when output is piped or JSON-formatted, in CI, or in a coding agent's
-shell, and it is drawn to fit terminals from 70 columns up. Set
-`OMNI_NO_BANNER=1` to disable it.
-
 ## Quick start
 
 ### Configure a profile
@@ -72,6 +63,8 @@ omni config init
 ```
 
 This creates a profile with your organization, API endpoint, and API key. You can create multiple profiles for different orgs or environments.
+
+In an interactive terminal, a successful `omni config init` or `omni config login` ends with a welcome banner showing the profile you just connected. It never appears when output is piped or JSON-formatted, in CI, or in a coding agent's shell. Set `OMNI_NO_BANNER=1` to disable it.
 
 ### Set your API token
 

@@ -8,6 +8,7 @@ import (
 	"github.com/exploreomni/omni-cli/internal/config"
 	"github.com/exploreomni/omni-cli/internal/output"
 	"github.com/exploreomni/omni-cli/internal/updatecheck"
+	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
 
@@ -16,12 +17,14 @@ import (
 // prove a person is reading.
 var agentEnvVars = []string{"AI_AGENT", "AGENT", "CLAUDECODE", "CODEX_SANDBOX", "CURSOR_AGENT", "GEMINI_CLI"}
 
-// maybePrintBanner greets bare `omni` with the welcome banner, ahead of the
-// root help cobra prints for it.
-func maybePrintBanner(args []string, stdout, stderr *os.File, version string) {
+// maybePrintBanner closes a successful `config init` or `config login` with
+// the welcome banner for the profile that was just connected.
+func maybePrintBanner(cmd *cobra.Command, name string, cfg *config.Config) {
+	stdout := os.Stdout
 	fd := int(stdout.Fd())
-	isTTY := term.IsTerminal(fd) && term.IsTerminal(int(stderr.Fd()))
-	if !bannerAllowed(args, isTTY, config.ResolveOutputFormat("", isTTY), os.Getenv) {
+	isTTY := term.IsTerminal(fd) && term.IsTerminal(int(os.Stderr.Fd()))
+	formatFlag, _ := cmd.Flags().GetString("format")
+	if !bannerAllowed(isTTY, config.ResolveOutputFormat(formatFlag, isTTY), os.Getenv) {
 		return
 	}
 	// Leave the last column free: some terminals wrap a line that fills it.
@@ -29,19 +32,17 @@ func maybePrintBanner(args []string, stdout, stderr *os.File, version string) {
 	if err != nil || width-1 < output.BannerMinWidth {
 		return
 	}
-	cfg, _ := config.Load()
 	dir, _ := os.Getwd()
-	output.Banner(stdout, bannerInfo(version, cfg, os.Getenv, dir), width-1)
 	fmt.Fprintln(stdout)
+	output.Banner(stdout, bannerInfo(version, name, cfg, dir), width-1)
 }
 
-// bannerAllowed reports whether this invocation is a person at a terminal
-// running `omni` with nothing after it. Everything else goes without: any
-// argument at all (so no command's output ever changes), piped or redirected
-// output, a JSON output format, CI, a dumb terminal, a coding agent's shell,
-// and anyone who set OMNI_NO_BANNER.
-func bannerAllowed(args []string, isTTY bool, format string, getenv func(string) string) bool {
-	if len(args) != 0 || !isTTY || format != config.FormatHuman {
+// bannerAllowed reports whether a person at a terminal is reading this
+// command's output. Everyone else goes without: piped or redirected output,
+// a JSON output format, CI, a dumb terminal, a coding agent's shell, and
+// anyone who set OMNI_NO_BANNER.
+func bannerAllowed(isTTY bool, format string, getenv func(string) string) bool {
+	if !isTTY || format != config.FormatHuman {
 		return false
 	}
 	if getenv("OMNI_NO_BANNER") != "" || getenv("CI") != "" || getenv("TERM") == "dumb" {
@@ -55,42 +56,28 @@ func bannerAllowed(args []string, isTTY bool, format string, getenv func(string)
 	return true
 }
 
-// bannerInfo describes the connection a command run right now would use. It
-// reads what config.Resolve reads — default profile, then environment — but
-// never refreshes a token: the banner must not touch the network.
-func bannerInfo(version string, cfg *config.Config, getenv func(string) string, dir string) output.BannerInfo {
-	const none, unconfigured = "none", "not configured"
-	profile, instance, auth := none, unconfigured, none
-	if cfg != nil && cfg.DefaultProfile != "" {
-		profile = cfg.DefaultProfile
-		if p, ok := cfg.Profiles[cfg.DefaultProfile]; ok {
-			if p.APIEndpoint != "" {
-				instance = p.APIEndpoint
-			}
-			switch {
-			case p.AuthMethod == "oauth" && p.AccessToken != "":
-				auth = "oauth"
-			case p.AuthMethod != "oauth" && p.APIKey != "":
-				auth = "api-key"
-			}
-		}
+// bannerInfo describes the profile named name as cfg holds it. It reads the
+// config alone: the banner never shows a secret and never touches the
+// network.
+func bannerInfo(version, name string, cfg *config.Config, dir string) output.BannerInfo {
+	p := cfg.Profiles[name]
+	instance := strings.TrimPrefix(p.APIEndpoint, "https://")
+	if instance == "" {
+		instance = "not configured"
 	}
-	if v := getenv("OMNI_BASE_URL"); v != "" {
-		instance = v
+	auth := p.AuthMethod
+	if auth == "" {
+		auth = "api-key"
 	}
-	if getenv("OMNI_API_TOKEN") != "" {
-		auth = "OMNI_API_TOKEN"
-	}
-
-	hint := "AI agents: start with omni agent-help"
-	if instance == unconfigured || auth == none {
-		hint = "Run omni config init to get started"
+	hint := "Next: omni models list"
+	if cfg.DefaultProfile != name {
+		hint = "Not the default profile: omni config use"
 	}
 	return output.BannerInfo{
 		Version: bannerVersion(version),
 		Fields: []output.BannerField{
-			{Label: "Profile", Value: profile},
-			{Label: "Instance", Value: strings.TrimPrefix(instance, "https://")},
+			{Label: "Profile", Value: name},
+			{Label: "Instance", Value: instance},
 			{Label: "Auth", Value: auth},
 		},
 		Hint: hint,
