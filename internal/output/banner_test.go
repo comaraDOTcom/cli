@@ -88,7 +88,7 @@ func TestBanner_Weather(t *testing.T) {
 func TestBanner_BlobbySitsOnTheDivider(t *testing.T) {
 	lines := banner(demoBanner(), BannerMaxWidth)
 	divider := lines[len(bannerSky)+1]
-	if !strings.HasPrefix(divider, "├─────   ▀▀████▀▀   ───") {
+	if !strings.HasPrefix(divider, "├─────   ▀▀██████▀▀   ───") {
 		t.Errorf("divider should break around Blobby: %s", divider)
 	}
 }

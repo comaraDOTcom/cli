@@ -14,7 +14,7 @@ const (
 	bannerInfoW   = 46 // inner width of the info panel
 	bannerLabelW  = 12 // width of the label column in the info panel
 	bannerArtMaxW = 53 // inner width of the art panel with the whole sky showing
-	bannerArtMinW = 20 // Blobby and a cell of margin
+	bannerArtMinW = 22 // Blobby and a cell of margin
 
 	// A line wider than the terminal wraps and tears the box apart, so the
 	// banner is drawn to fit: between these widths the sky is cropped, and a
@@ -24,27 +24,31 @@ const (
 )
 
 // blobby is Omni's mascot at two pixels per terminal row, drawn with half
-// blocks: P body, M shadow, L rim light, o face.
+// blocks: P body, M shadow, L rim light, o face. It is wider than it is tall
+// because most terminals' cells are a little taller than two squares; drawn
+// square, Blobby comes out an egg.
 var blobby = []string{
-	"....PPLL....",
-	"..PPPPPPLL..",
-	".MPPPPPPPPL.",
-	".MPPPPPPPPL.",
-	"MPPPPPPPPPPL",
-	"MPPPPoPPPPoL",
-	"MPPPPPPooPPL",
-	"MPPPPPPPPPPP",
-	".MPPPPPPPPP.",
-	".MMPPPPPPPP.",
-	"..MMPPPPPP..",
-	"....MMPP....",
+	"....PPPPLL....",
+	"..PPPPPPPPLL..",
+	".MPPPPPPPPPPL.",
+	".MPPPPPPPPPPL.",
+	"MPPPPPPPPPPPPL",
+	"MPPPPPoPPPPoPL",
+	"MPPPPPPPooPPPL",
+	"MPPPPPPPPPPPPP",
+	".MPPPPPPPPPPP.",
+	".MMPPPPPPPPPP.",
+	"..MMPPPPPPPP..",
+	"....MMMPPP....",
 }
 
+// A step softer than the brand colours: omniPink with its neon magenta
+// shadow glares against a black terminal.
 var blobbyPalette = map[byte]lipgloss.Color{
-	'P': omniPink,
-	'M': lipgloss.Color("#D600C8"),
-	'L': lipgloss.Color("#FFA6DA"),
-	'o': lipgloss.Color("#4D1430"),
+	'P': lipgloss.Color("#FB72AB"),
+	'M': lipgloss.Color("#D15289"),
+	'L': lipgloss.Color("#FFB0D2"),
+	'o': lipgloss.Color("#5A1F3D"),
 }
 
 // Blobby's top-left cell in the art panel. The art is one row taller than
@@ -53,12 +57,12 @@ const blobbyRow, blobbyCol = 3, 6
 
 var bannerSky = []string{
 	"",
-	"                       ░░░░░░              ░░░░░",
-	"                    ░░░░░░░░░░░░        ░░░░░░░░░░",
+	"                         ░░░░░░            ░░░░░",
+	"                      ░░░░░░░░░░░░      ░░░░░░░░░░",
 	"                                      ░░░░░░░░░░░░░░",
 	"    *",
 	"                                   *",
-	"                       *",
+	"                        *",
 	"                                              *",
 }
 
@@ -69,9 +73,9 @@ var bannerWeather = []struct {
 	row, col int
 	glyph    string
 }{
-	{3, 25, "⚡"},
+	{3, 27, "⚡"},
 	{4, 44, "⚡"},
-	{5, 27, "🐟"},
+	{5, 29, "🐟"},
 	{6, 40, "🐟"},
 }
 
