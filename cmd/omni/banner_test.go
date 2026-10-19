@@ -24,17 +24,18 @@ func TestBannerInfo(t *testing.T) {
 			"staging": {APIEndpoint: "https://staging.omniapp.co", AuthMethod: "oauth", AccessToken: "secret-token", RefreshToken: "secret-refresh"},
 			"legacy":  {APIEndpoint: "https://legacy.omniapp.co", APIKey: "secret-key"},
 			"blank":   {},
+			"My Org":  {APIEndpoint: "https://my.omniapp.co", AuthMethod: "api-key", APIKey: "secret-key"},
 		},
 	}
-	const nextHint, useHint = "Next: omni models list", "Not the default profile: omni config use"
 
 	for _, tc := range []struct {
 		name, instance, auth, hint string
 	}{
-		{"acme", "acme.omniapp.co", "api-key", nextHint},
-		{"staging", "staging.omniapp.co", "oauth", useHint},
-		{"legacy", "legacy.omniapp.co", "api-key", useHint},
-		{"blank", "not configured", "api-key", useHint},
+		{"acme", "acme.omniapp.co", "api-key", "Next: omni models list"},
+		{"staging", "staging.omniapp.co", "oauth", "Set as default: omni config use staging"},
+		{"legacy", "legacy.omniapp.co", "api-key", "Set as default: omni config use legacy"},
+		{"blank", "not configured", "api-key", "Set as default: omni config use blank"},
+		{"My Org", "my.omniapp.co", "api-key", "Set as default: omni config use 'My Org'"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			info := bannerInfo("1.4.0", tc.name, cfg, "/work")
@@ -58,6 +59,32 @@ func TestBannerInfo(t *testing.T) {
 	}
 }
 
+// An endpoint is saved as typed. Only its host may reach the banner: not a
+// user:password, not a query string that might carry a token, not a path.
+func TestEndpointHost(t *testing.T) {
+	for in, want := range map[string]string{
+		"https://acme.omniapp.co":                   "acme.omniapp.co",
+		"https://acme.omniapp.co/":                  "acme.omniapp.co",
+		"https://acme.omniapp.co:8443/api/v1?x=1#f": "acme.omniapp.co:8443",
+		"https://user:secret@acme.omniapp.co":       "acme.omniapp.co",
+		"https://acme.omniapp.co/?api_token=secret": "acme.omniapp.co",
+		"http://localhost:3000":                     "localhost:3000",
+		"":                                          "not configured",
+		"acme.omniapp.co":                           "unrecognized endpoint",
+		"https://":                                  "unrecognized endpoint",
+		"://secret@nowhere":                         "unrecognized endpoint",
+		"https://user:secret@%zz":                   "unrecognized endpoint",
+	} {
+		got := endpointHost(in)
+		if got != want {
+			t.Errorf("endpointHost(%q) = %q, want %q", in, got, want)
+		}
+		if strings.Contains(got, "secret") {
+			t.Errorf("endpointHost(%q) leaked a credential: %q", in, got)
+		}
+	}
+}
+
 func TestBannerVersion(t *testing.T) {
 	for in, want := range map[string]string{
 		"1.4.0":        "v1.4.0",
@@ -72,32 +99,30 @@ func TestBannerVersion(t *testing.T) {
 	}
 }
 
-// The banner is for a person watching `config init` or `config login`
-// finish. Agents and scripts must never find it in a command's output.
-func TestBannerAllowed(t *testing.T) {
+// Whether a person is at the terminal is interactiveHumanOutput's call,
+// shared with the update notice. On top of that, some environments don't
+// want the banner even then, and agents must never find it in a command's
+// output.
+func TestBannerOptedOut(t *testing.T) {
 	for _, tc := range []struct {
-		name   string
-		isTTY  bool
-		format string
-		env    map[string]string
-		want   bool
+		name string
+		env  map[string]string
+		want bool
 	}{
-		{"a person at a terminal", true, config.FormatHuman, nil, true},
-		{"an ordinary terminal", true, config.FormatHuman, map[string]string{"TERM": "xterm-256color"}, true},
-		{"piped or redirected", false, config.FormatHuman, nil, false},
-		{"json output format", true, config.FormatJSON, nil, false},
-		{"opted out", true, config.FormatHuman, map[string]string{"OMNI_NO_BANNER": "1"}, false},
-		{"ci", true, config.FormatHuman, map[string]string{"CI": "true"}, false},
-		{"dumb terminal", true, config.FormatHuman, map[string]string{"TERM": "dumb"}, false},
-		{"claude code", true, config.FormatHuman, map[string]string{"CLAUDECODE": "1"}, false},
-		{"cursor agent", true, config.FormatHuman, map[string]string{"CURSOR_AGENT": "1"}, false},
-		{"codex", true, config.FormatHuman, map[string]string{"CODEX_SANDBOX": "seatbelt"}, false},
-		{"gemini cli", true, config.FormatHuman, map[string]string{"GEMINI_CLI": "1"}, false},
-		{"generic agent marker", true, config.FormatHuman, map[string]string{"AI_AGENT": "some-agent"}, false},
+		{"nothing set", nil, false},
+		{"an ordinary terminal", map[string]string{"TERM": "xterm-256color"}, false},
+		{"opted out", map[string]string{"OMNI_NO_BANNER": "1"}, true},
+		{"ci", map[string]string{"CI": "true"}, true},
+		{"dumb terminal", map[string]string{"TERM": "dumb"}, true},
+		{"claude code", map[string]string{"CLAUDECODE": "1"}, true},
+		{"cursor agent", map[string]string{"CURSOR_AGENT": "1"}, true},
+		{"codex", map[string]string{"CODEX_SANDBOX": "seatbelt"}, true},
+		{"gemini cli", map[string]string{"GEMINI_CLI": "1"}, true},
+		{"generic agent marker", map[string]string{"AI_AGENT": "some-agent"}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := bannerAllowed(tc.isTTY, tc.format, getenv(tc.env)); got != tc.want {
-				t.Errorf("bannerAllowed = %v, want %v", got, tc.want)
+			if got := bannerOptedOut(getenv(tc.env)); got != tc.want {
+				t.Errorf("bannerOptedOut = %v, want %v", got, tc.want)
 			}
 		})
 	}

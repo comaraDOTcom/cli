@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 )
 
 var bannerCHA = regexp.MustCompile(`\x1b\[\d+G`)
@@ -52,6 +53,24 @@ func TestBanner_EveryLineFitsTheTerminal(t *testing.T) {
 			}
 		}
 	}
+}
+
+// With colour the half blocks carry foreground and background sequences and
+// the borders are placed by column; none of that may change a line's width.
+func TestBanner_EveryLineFitsTheTerminalInColour(t *testing.T) {
+	for _, profile := range []termenv.Profile{termenv.TrueColor, termenv.ANSI256, termenv.ANSI} {
+		lipgloss.SetColorProfile(profile)
+		lines := banner(demoBanner(), BannerMaxWidth)
+		for i, line := range lines {
+			if got := lipgloss.Width(line); got != BannerMaxWidth {
+				t.Errorf("profile %d: line %d is %d cells wide, want %d:\n%s", profile, i, got, BannerMaxWidth, line)
+			}
+		}
+		if profile == termenv.TrueColor && !strings.Contains(strings.Join(lines, "\n"), "48;2;") {
+			t.Error("a true-colour banner should paint Blobby's lower pixels as backgrounds")
+		}
+	}
+	lipgloss.SetColorProfile(termenv.Ascii)
 }
 
 func TestBanner_ShowsWhatItWasGiven(t *testing.T) {
